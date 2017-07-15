@@ -4,31 +4,22 @@ precision mediump float;
 
 uniform vec2 resolution;
 uniform float time;
-uniform float color;
+uniform float m;
+//uniform sampler2D backbuffer;
 
-float box(in vec2 _st, in vec2 _size){
-    _size = vec2(0.5) - _size*0.5;
-    vec2 uv = smoothstep(_size,
-                        _size+vec2(0.001),
-                        _st);
-    uv *= smoothstep(_size,
-                    _size+vec2(0.001),
-                    vec2(1.0)-_st);
-    return uv.x*uv.y;
+uniform sampler2D image1;
+uniform sampler2D image2;
+uniform sampler2D image3;
+//uniform vec2 u_tex0Resolution;
+
+float random (in float x) {
+    return fract(sin(x)*43758.5453123)-0.5;
 }
 
-float cross(in vec2 _st, float _size){
-    return  box(_st, vec2(_size,_size/4.)) + 
-            box(_st, vec2(_size/4.,_size));
-}
-
-void main(){
-    vec2 st = gl_FragCoord.xy/resolution.xy;
-    vec3 c = vec3(0.);
-
-    c += vec3(cross(st,0.5*abs(cos(time))));
-    c.r -= color;
-    //c *= u_color;
-
-    gl_FragColor = vec4(c,1.0);
+void main (void) {
+	vec2 st = gl_FragCoord.xy/resolution.xy;
+  vec4 i1 = texture2D(image1,st*0.8);
+  vec4 i2 = texture2D(image2,st);
+	gl_FragColor = mix(i1,i2,m);
+  //gl_FragColor = texture2D(image1,st*sin(time*2.));
 }
