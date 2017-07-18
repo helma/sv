@@ -16,12 +16,7 @@ GLFWwindow* window;
 GLuint vertex;
 GLuint fragment;
 GLuint shader;
-
-struct texture {
-  char name[10];
-  GLuint id;
-  UT_hash_handle hh;         /* makes this structure hashable */
-};
+GLuint textures[4];
 
 struct param {
   char name[10];
@@ -30,7 +25,6 @@ struct param {
 };
 
 struct param *parameters  = NULL;
-struct texture *textures  = NULL;
 
 static void error_callback(int error, const char* description) { fputs(description, stderr); }
 
@@ -110,20 +104,30 @@ void createShader(char *vert, char *frag) {
   glBindVertexArray(VAO);
 };
 
-void readImage(char *name, char *file) {
-  int n = HASH_COUNT(textures);
-  glGenTextures(1, &n);
-  glBindTexture(GL_TEXTURE_2D, n);
+
+void setTextureParams() {
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  glEnable(GL_TEXTURE_2D);
+  stbi_set_flip_vertically_on_load(1);
+}
+void readImage(char *file, char *name, int32_t t, int i) {
+
+  GLuint tex;
+  glGenTextures(1, &tex);
+  glActiveTexture(GL_TEXTURE0+i);
+  glBindTexture(GL_TEXTURE_2D,tex);
+  setTextureParams();
+  GLint v = glGetUniformLocation(shader, name);
+  printf("loc %.i\n",v);
+  glUniform1i(v, i);
   int comp;
   unsigned char* pixels = stbi_load(file, &width, &height, &comp, STBI_rgb_alpha);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-  struct texture *t;
-  t = (struct texture*)malloc(sizeof(struct texture));
-  strncpy(t->name, name,10);
-  int v = glGetUniformLocation(shader, name);
-  printf("loc %.i\n",v);
-  glUniform1i(v, n);
-	glBindTexture(GL_TEXTURE_2D, 0);
   stbi_image_free(pixels);
 }
 
@@ -149,7 +153,7 @@ void *readStdin() {
     utstring_printf(name, n);
 
     if (utstring_find(name,0,"img",3) == 0) {
-      readImage(n,strtok(NULL,"\n"));
+      //readImage(n,strtok(NULL,"\n"));
     }
     else if (utstring_find(name,0,"frag",4) == 0) {
       createShader("shader.vert",strtok(NULL,"\n"));
@@ -167,26 +171,55 @@ void *readStdin() {
   }
 }
 
-void setTextureParams() {
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  stbi_set_flip_vertically_on_load(1);
-}
-
 int main(int argc, char **argv) {
 
   createWindow();
   createShader("shader.vert","shader.frag");
+  glUseProgram(shader);
+  /*
+  */
+  readImage(argv[1],"img0",GL_TEXTURE0,0);
+  readImage(argv[2],"img1",GL_TEXTURE1,1);
+  readImage(argv[3],"img2",GL_TEXTURE2,2);
+  readImage(argv[4],"img3",GL_TEXTURE3,3);
+/*
+  glEnable(GL_TEXTURE_2D);
+  //glBindTexture(GL_TEXTURE_2D,0);
+  GLuint tex0;
+    glGenTextures(1, &tex0);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D,tex0);
   setTextureParams();
-  for (int i = 1; i < argc ; i++) {
-    char name[0];
-    sprintf(name,"img%.i",i);
-    readImage(name,argv[i]);
-  }
+
+  GLint v = glGetUniformLocation(shader, "img0");
+  printf("loc %.i\n",v);
+  glUniform1i(v, tex0);
+  int comp;
+  unsigned char* pixels = stbi_load(argv[1], &width, &height, &comp, STBI_rgb_alpha);
+  //printf("%i\n",textures[0]);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  stbi_image_free(pixels);
+  //glBindTexture(GL_TEXTURE_2D,0);
+
+
+  glBindTexture(GL_TEXTURE_2D,0);
+  glActiveTexture(GL_TEXTURE0);
+  GLuint tex1;
+    glGenTextures(1, &tex1);
+  v = glGetUniformLocation(shader, "img1");
+  printf("loc %.i\n",v);
+  glUniform1i(v, tex1);
+  //glActiveTexture(GL_TEXTURE1);
+  glBindTexture(GL_TEXTURE_2D,tex1);
+  //glBindTexture(GL_TEXTURE_2D,textures[1]);
+  //glBindTexture(GL_TEXTURE_2D,1);
+  pixels = stbi_load(argv[2], &width, &height, &comp, STBI_rgb_alpha);
+  printf("%i\n",tex1);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  stbi_image_free(pixels);
+  //glBindTexture(GL_TEXTURE_2D,0);
+*/
+
   uniform2f("resolution", width,height);
   pthread_t tid;
   pthread_create(&tid, NULL, readStdin, NULL);
@@ -202,6 +235,15 @@ int main(int argc, char **argv) {
       HASH_DEL(parameters, p);
       free(p);
     }
+    /*
+    struct texture *t, *tmp2;
+    HASH_ITER(hh, textures, t, tmp2) {
+      int v = glGetUniformLocation(shader, t->name);
+      printf("loc %.i\n",v);
+      glUniform1i(v, t->id);
+    }
+    */
+
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glfwSwapBuffers(window);
     glfwPollEvents();
