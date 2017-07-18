@@ -27,6 +27,6 @@ void main (void) {
 	i1 = mix(i1,i2,sin(time));
 	i2 = mix(i3,i4,cos(time));
 	gl_FragColor = mix(i1,i2,0.5);
-	gl_FragColor = i2;
+	//gl_FragColor = i2;
   //gl_FragColor = texture2D(image1,st*sin(time*2.));
 }

@@ -16,14 +16,12 @@ GLFWwindow* window;
 GLuint vertex;
 GLuint fragment;
 GLuint shader;
-GLuint textures[4];
 
 struct param {
   char name[10];
   float value;
   UT_hash_handle hh;         /* makes this structure hashable */
 };
-
 struct param *parameters  = NULL;
 
 static void error_callback(int error, const char* description) { fputs(description, stderr); }
@@ -105,7 +103,7 @@ void createShader(char *vert, char *frag) {
 };
 
 
-void readImage(char *file, char *name, int32_t t, int i) {
+void readImage(char *file, int i) {
 
   GLuint tex;
   glGenTextures(1, &tex);
@@ -119,8 +117,10 @@ void readImage(char *file, char *name, int32_t t, int i) {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
   glEnable(GL_TEXTURE_2D);
 
+  char name[4];
+  sprintf(name,"img%i",i);
+  printf("%s: %s\n",name,file);
   GLint v = glGetUniformLocation(shader, name);
-  printf("loc %.i\n",v);
   glUniform1i(v, i);
 
   int comp;
@@ -152,12 +152,12 @@ void *readStdin() {
     utstring_printf(name, n);
 
     if (utstring_find(name,0,"img",3) == 0) {
-      //readImage(n,strtok(NULL,"\n"));
+      readImage(strtok(NULL,"\n"),str[3]-'0');
     }
     else if (utstring_find(name,0,"frag",4) == 0) {
       createShader("shader.vert",strtok(NULL,"\n"));
     }
-    else if (utstring_find(name,0,"quit",4) == 0) {
+    else if (utstring_find(name,0,"q",1) == 0) {
       glfwSetWindowShouldClose(window, GL_TRUE);
     }
     else {
@@ -174,13 +174,9 @@ int main(int argc, char **argv) {
 
   createWindow();
   createShader("shader.vert","shader.frag");
-  glUseProgram(shader);
-  readImage(argv[1],"img0",GL_TEXTURE0,0);
-  readImage(argv[2],"img1",GL_TEXTURE1,1);
-  readImage(argv[3],"img2",GL_TEXTURE2,2);
-  readImage(argv[4],"img3",GL_TEXTURE3,3);
-
+  for (int i = 0; i<4; i++) { readImage(argv[i+1],i); }
   uniform2f("resolution", width,height);
+  
   pthread_t tid;
   pthread_create(&tid, NULL, readStdin, NULL);
 
