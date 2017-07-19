@@ -16,6 +16,7 @@ GLFWwindow* window;
 GLuint vertex;
 GLuint fragment;
 GLuint shader;
+GLuint textures[4];
 
 struct param {
   char name[10];
@@ -23,6 +24,13 @@ struct param {
   UT_hash_handle hh;         /* makes this structure hashable */
 };
 struct param *parameters  = NULL;
+
+struct image {
+  int id;
+  char path[40];
+  UT_hash_handle hh;         /* makes this structure hashable */
+};
+struct image *images  = NULL;
 
 static void error_callback(int error, const char* description) { fputs(description, stderr); }
 
@@ -64,6 +72,7 @@ GLuint compileShader(const char * source, GLenum type) {
 }
 
 GLuint linkShader(GLuint vertex, GLuint fragment) {
+  glDeleteProgram(shader);
   shader = glCreateProgram();
   glAttachShader(shader, vertex);
   glAttachShader(shader, fragment);
@@ -102,34 +111,6 @@ void createShader(char *vert, char *frag) {
   glBindVertexArray(VAO);
 };
 
-
-void readImage(char *file, int i) {
-
-  GLuint tex;
-  glGenTextures(1, &tex);
-  glActiveTexture(GL_TEXTURE0+i);
-  glBindTexture(GL_TEXTURE_2D,tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  glEnable(GL_TEXTURE_2D);
-
-  char name[4];
-  sprintf(name,"img%i",i);
-  printf("%s: %s\n",name,file);
-  GLint v = glGetUniformLocation(shader, name);
-  glUniform1i(v, i);
-
-  int comp;
-  stbi_set_flip_vertically_on_load(1);
-  unsigned char* pixels = stbi_load(file, &width, &height, &comp, STBI_rgb_alpha);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-  stbi_image_free(pixels);
-}
-
 void uniform1f(char * var, float f) {
   int v = glGetUniformLocation(shader, var);
   glUniform1f(v, f);
@@ -138,6 +119,36 @@ void uniform1f(char * var, float f) {
 void uniform2f(char * var, float f0, float f1) {
   int v = glGetUniformLocation(shader, var);
   glUniform2f(v,f0,f1);
+}
+
+void readImage(char *file, int i) {
+
+  glUseProgram(shader);
+  char name[4];
+  sprintf(name,"img%i",i);
+  glUniform1i(glGetUniformLocation(shader, name), i);
+  //glBindTexture(GL_TEXTURE_2D, 0);
+  //glDeleteTextures(1,&textures[i]);
+  //GLuint tex;
+  //glGenTextures(1, &tex);
+  //textures[i] = tex;
+  glActiveTexture(GL_TEXTURE0+i);
+  glBindTexture(GL_TEXTURE_2D,textures[i]);
+  //glBindTexture(GL_TEXTURE_2D,tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  //glEnable(GL_TEXTURE_2D);//Only use this if not using shaders.
+
+  int w,h,comp;
+  stbi_set_flip_vertically_on_load(1);
+  unsigned char* pixels = stbi_load(file, &w, &h, &comp, STBI_rgb_alpha);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  char ratio[9];
+  sprintf(ratio,"%sratio",name);
+  uniform1f(ratio,(float) w/h);
+  stbi_image_free(pixels);
 }
 
 void *readStdin() {
@@ -152,7 +163,11 @@ void *readStdin() {
     utstring_printf(name, n);
 
     if (utstring_find(name,0,"img",3) == 0) {
-      readImage(strtok(NULL,"\n"),str[3]-'0');
+      struct image *i;
+      i = (struct image*)malloc(sizeof(struct image));
+      i->id = str[3]-'0';
+      strncpy(i->path, strtok(NULL,"\n"),40);
+      HASH_ADD_INT( images, id, i );
     }
     else if (utstring_find(name,0,"frag",4) == 0) {
       createShader("shader.vert",strtok(NULL,"\n"));
@@ -173,7 +188,9 @@ void *readStdin() {
 int main(int argc, char **argv) {
 
   createWindow();
+  //createShader("shader.vert","cross.frag");
   createShader("shader.vert","shader.frag");
+  glGenTextures(4, textures);
   for (int i = 0; i<4; i++) { readImage(argv[i+1],i); }
   uniform2f("resolution", width,height);
   
@@ -184,12 +201,19 @@ int main(int argc, char **argv) {
     uniform1f("time",glfwGetTime());
     // parameters mutex??
     // see uthash/doc/userguide.txt
-    struct param *p, *tmp;
-    HASH_ITER(hh, parameters, p, tmp) {
+    struct param *p, *tmp0;
+    HASH_ITER(hh, parameters, p, tmp0) {
       printf("%s %.f\n",p->name,p->value);
       uniform1f(p->name,p->value);
       HASH_DEL(parameters, p);
       free(p);
+    }
+    struct image *i, *tmp1;
+    HASH_ITER(hh, images, i, tmp1) {
+      printf("%i %s\n",i->id,i->path);
+      HASH_DEL(images, i);
+      readImage(i->path,i->id);
+      free(i);
     }
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -197,8 +221,7 @@ int main(int argc, char **argv) {
     glfwPollEvents();
   }
 
-  //pthread_join(tid, NULL);
-  //printf("After Thread\n");
+  pthread_cancel(tid);
   glfwDestroyWindow(window);
   glfwTerminate();
  
