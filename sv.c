@@ -15,7 +15,7 @@ int height = 1080;
 GLFWwindow* window;
 GLuint vertex;
 GLuint fragment;
-GLuint shader;
+GLuint shaderProgram;
 GLuint textures[4];
 
 struct param {
@@ -31,6 +31,12 @@ struct image {
   UT_hash_handle hh;         /* makes this structure hashable */
 };
 struct image *images  = NULL;
+
+struct shader {
+  char path[40];
+  UT_hash_handle hh;         /* makes this structure hashable */
+};
+struct shader *shaders  = NULL;
 
 static void error_callback(int error, const char* description) { fputs(description, stderr); }
 
@@ -72,24 +78,24 @@ GLuint compileShader(const char * source, GLenum type) {
 }
 
 GLuint linkShader(GLuint vertex, GLuint fragment) {
-  glDeleteProgram(shader);
-  shader = glCreateProgram();
-  glAttachShader(shader, vertex);
-  glAttachShader(shader, fragment);
-  glLinkProgram(shader);
+  glUseProgram(0);
+  glDeleteProgram(shaderProgram);
+  shaderProgram = glCreateProgram();
+  glAttachShader(shaderProgram, vertex);
+  glAttachShader(shaderProgram, fragment);
+  glLinkProgram(shaderProgram);
   int success;
   char infoLog[512];
-  glGetProgramiv(shader, GL_LINK_STATUS, &success);
+  glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
   if (!success) {
-      glGetProgramInfoLog(shader, 512, NULL, infoLog);
-      fputs("Shader linking failed:\n",stderr);
-      fputs(infoLog,stderr);
+    glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+    fputs("Shader linking failed:\n",stderr);
+    fputs(infoLog,stderr);
   }
-  glDetachShader(shader, vertex); 
-  glDetachShader(shader, fragment); 
+  glDetachShader(shaderProgram, vertex); 
+  glDetachShader(shaderProgram, fragment); 
   glDeleteShader(vertex);
   glDeleteShader(fragment);
-  glUseProgram(shader);
 }
 
 void createWindow() {
@@ -106,48 +112,40 @@ void createShader(char *vert, char *frag) {
   vertex = compileShader(readShader(vert), GL_VERTEX_SHADER);
   fragment = compileShader(readShader(frag),GL_FRAGMENT_SHADER);
   linkShader(vertex,fragment);
-  unsigned int VAO;
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO);
+  glUseProgram(shaderProgram);
 };
 
 void uniform1f(char * var, float f) {
-  int v = glGetUniformLocation(shader, var);
+  int v = glGetUniformLocation(shaderProgram, var);
   glUniform1f(v, f);
 }
 
 void uniform2f(char * var, float f0, float f1) {
-  int v = glGetUniformLocation(shader, var);
+  int v = glGetUniformLocation(shaderProgram, var);
   glUniform2f(v,f0,f1);
 }
 
 void readImage(char *file, int i) {
 
-  glUseProgram(shader);
   char name[4];
   sprintf(name,"img%i",i);
-  glUniform1i(glGetUniformLocation(shader, name), i);
-  //glBindTexture(GL_TEXTURE_2D, 0);
-  //glDeleteTextures(1,&textures[i]);
-  //GLuint tex;
-  //glGenTextures(1, &tex);
-  //textures[i] = tex;
-  glActiveTexture(GL_TEXTURE0+i);
-  glBindTexture(GL_TEXTURE_2D,textures[i]);
-  //glBindTexture(GL_TEXTURE_2D,tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  //glEnable(GL_TEXTURE_2D);//Only use this if not using shaders.
+  glUniform1i(glGetUniformLocation(shaderProgram, name), i);
 
   int w,h,comp;
   stbi_set_flip_vertically_on_load(1);
   unsigned char* pixels = stbi_load(file, &w, &h, &comp, STBI_rgb_alpha);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
   char ratio[9];
   sprintf(ratio,"%sratio",name);
   uniform1f(ratio,(float) w/h);
+
+  glActiveTexture(GL_TEXTURE0+i);
+  glBindTexture(GL_TEXTURE_2D,textures[i]);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
   stbi_image_free(pixels);
 }
 
@@ -162,15 +160,18 @@ void *readStdin() {
     utstring_new(name);
     utstring_printf(name, n);
 
-    if (utstring_find(name,0,"img",3) == 0) {
+    if (utstring_find(name,0,"i",1) == 0) {
       struct image *i;
       i = (struct image*)malloc(sizeof(struct image));
-      i->id = str[3]-'0';
+      i->id = str[1]-'0';
       strncpy(i->path, strtok(NULL,"\n"),40);
       HASH_ADD_INT( images, id, i );
     }
-    else if (utstring_find(name,0,"frag",4) == 0) {
-      createShader("shader.vert",strtok(NULL,"\n"));
+    else if (utstring_find(name,0,"f",1) == 0) {
+      struct shader *s;
+      s = (struct shader*)malloc(sizeof(struct shader));
+      strncpy(s->path, strtok(NULL,"\n"),40);
+      HASH_ADD_STR( shaders, path, s );
     }
     else if (utstring_find(name,0,"q",1) == 0) {
       glfwSetWindowShouldClose(window, GL_TRUE);
@@ -190,6 +191,9 @@ int main(int argc, char **argv) {
   createWindow();
   //createShader("shader.vert","cross.frag");
   createShader("shader.vert","shader.frag");
+  unsigned int VAO;
+  glGenVertexArrays(1, &VAO);
+  glBindVertexArray(VAO);
   glGenTextures(4, textures);
   for (int i = 0; i<4; i++) { readImage(argv[i+1],i); }
   uniform2f("resolution", width,height);
@@ -201,19 +205,31 @@ int main(int argc, char **argv) {
     uniform1f("time",glfwGetTime());
     // parameters mutex??
     // see uthash/doc/userguide.txt
+
     struct param *p, *tmp0;
     HASH_ITER(hh, parameters, p, tmp0) {
-      printf("%s %.f\n",p->name,p->value);
+      //printf("%s %.f\n",p->name,p->value);
       uniform1f(p->name,p->value);
       HASH_DEL(parameters, p);
       free(p);
     }
+
     struct image *i, *tmp1;
     HASH_ITER(hh, images, i, tmp1) {
       printf("%i %s\n",i->id,i->path);
-      HASH_DEL(images, i);
       readImage(i->path,i->id);
+      HASH_DEL(images, i);
       free(i);
+    }
+
+    struct shader *s, *tmp2;
+    HASH_ITER(hh, shaders, s, tmp2) {
+      //printf("%i %s\n",i->id,i->path);
+      createShader("shader.vert",s->path);
+      HASH_DEL(shaders, s);
+      free(s);
+  for (int i = 0; i<4; i++) { readImage(argv[i+1],i); }
+  uniform2f("resolution", width,height);
     }
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
