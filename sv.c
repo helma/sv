@@ -17,6 +17,7 @@ GLFWwindow* window;
 GLuint vertex;
 GLuint fragment;
 GLuint shaderProgram;
+int bars;
 
 typedef struct Shad {
   GLuint id;
@@ -38,7 +39,6 @@ typedef struct Img {
 Image images[4];
 
 typedef struct Param {
-  //char name[3];
   float value;
   int new;
 } Parameter;
@@ -54,7 +54,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 const char * readShader(char * path) {
   FILE *file = fopen(path, "r");
   if (!file) { fprintf(stderr,"Cannot read %s\n",path); }
-  char source[2000];
+  char source[1000000];
   int res = fread(source,1,2000-1,file);
   source[res] = 0;
   fclose(file);
@@ -116,23 +116,8 @@ void createWindow() {
   glewInit();
 }
 
-void uniform1f(char * var, float f) {
-  int v = glGetUniformLocation(shader.id, var);
-  glUniform1f(v, f);
-}
-
-void uniform2f(char * var, float f0, float f1) {
-  int v = glGetUniformLocation(shader.id, var);
-  glUniform2f(v,f0,f1);
-}
-
 void imageUniforms(int i) {
-  //Image image = images[i];
-  //char name[2];
-  //sprintf(name,"i%i",i);
   glUniform1i(glGetUniformLocation(shader.id, "images")+i,i);
-  //char ratioName[7];
-  //sprintf(ratioName,"%sratio",name);
   glUniform1f(glGetUniformLocation(shader.id, "ratios")+i,images[i].ratio);
 }
 
@@ -169,6 +154,7 @@ void updateImages(int force) {
 }
 
 void updateParams(int force) {
+  glUniform1i(glGetUniformLocation(shader.id, "bars"), bars);
   for (int i = 0; i<32; i++) {
     if (parameters[i].new || force) {
       glUniform1f(glGetUniformLocation(shader.id, "params")+i, parameters[i].value);
@@ -191,6 +177,11 @@ void *readStdin() {
     else if (n[0] == 'f') {
       strncpy(shader.fragment, strtok(NULL,"\n"),40);
       shader.new = 1;
+    }
+    else if (n[0] == 'b') {
+      bars = atof(strtok (NULL,"\n"));
+      glfwSetTime(0);	
+      printf("%i\n",bars);
     }
     else if (n[0] == 'p') {
       int i = atoi(strtok(NULL," "));
@@ -235,7 +226,7 @@ int main(int argc, char **argv) {
     glUniform1f(glGetUniformLocation(shader.id, "time"),glfwGetTime());
     if (shader.new) {
       createShader();
-      uniform2f("resolution", width,height); // important!!
+      glUniform2f(glGetUniformLocation(shader.id, "resolution"),width,height); // important!!
       for (int i = 0; i<4; i++) { imageUniforms(i); }
       updateParams(1);
       shader.new = 0;
