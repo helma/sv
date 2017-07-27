@@ -17,6 +17,7 @@ GLFWwindow* window;
 GLuint vertex;
 GLuint fragment;
 GLuint shaderProgram;
+GLuint backbuffer;
 int bars;
 
 typedef struct Shad {
@@ -61,6 +62,16 @@ const char * readShader(char * path) {
   const char *c_str = source;
   return c_str;
 }
+
+/*
+attach_shader(program, GL_VERTEX_SHADER, R"(
+  #version 450 core
+  layout(location=0) in vec2 coord;
+  void main(void) {
+    gl_Position = vec4(coord, 0.0, 1.0);
+  }
+)");
+*/
 
 GLuint compileShader(const char * source, GLenum type) {
   GLuint sh = glCreateShader(type);
@@ -137,8 +148,10 @@ void readImage(int i) {
   glBindTexture(GL_TEXTURE_2D,images[i].id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
   stbi_image_free(pixels);
 }
@@ -216,6 +229,10 @@ int main(int argc, char **argv) {
     strncpy(images[i-1].path, argv[i],40);
     images[i-1].new = 1;
   }
+  //glActiveTexture(GL_TEXTURE4);
+  glCreateTextures(GL_TEXTURE_2D,1,&backbuffer);
+  glTextureStorage2D(backbuffer,1,GL_RGBA32F,width,height);
+  glBindImageTexture(0,backbuffer, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
   
   pthread_t stdin_t;
   pthread_create(&stdin_t, NULL, readStdin, NULL);
