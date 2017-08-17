@@ -10,6 +10,8 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 int width = 1920;
 int height = 1080;
@@ -46,32 +48,48 @@ typedef struct Param {
 
 Parameter parameters[32];
 
+void screenshot() {
+  unsigned char pixels[width*height*4];
+  time_t current_time = time(NULL);
+  char output_file[25];
+  strftime(output_file, 25, "%Y-%m-%d_%H%M%S.png", localtime(&current_time));
+  glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  // Flip the image on Y
+  int depth = 4;
+  int row,col,z;
+  stbi_uc temp;
+
+  for (row = 0; row < (height>>1); row++) {
+   for (col = 0; col < width; col++) {
+      for (z = 0; z < depth; z++) {
+         temp = pixels[(row * width + col) * depth + z];
+         pixels[(row * width + col) * depth + z] = pixels[((height - row - 1) * width + col) * depth + z];
+         pixels[((height - row - 1) * width + col) * depth + z] = temp;
+      }
+   }
+  }
+  if (0 == stbi_write_png(output_file, width, height, 4, pixels, width * 4)) {
+      printf("can't create file %s",output_file);
+  }
+}
+
 static void error_callback(int error, const char* description) { fputs(description, stderr); }
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_Q && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GL_TRUE);
+    else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) screenshot();
 }
 
 const char * readShader(char * path) {
   FILE *file = fopen(path, "r");
   if (!file) { fprintf(stderr,"Cannot read %s\n",path); }
-  char source[1000000];
-  int res = fread(source,1,2000-1,file);
+  char source[100000];
+  int res = fread(source,1,100000-1,file);
   source[res] = 0;
   fclose(file);
   const char *c_str = source;
   return c_str;
 }
-
-/*
-attach_shader(program, GL_VERTEX_SHADER, R"(
-  #version 450 core
-  layout(location=0) in vec2 coord;
-  void main(void) {
-    gl_Position = vec4(coord, 0.0, 1.0);
-  }
-)");
-*/
 
 GLuint compileShader(const char * source, GLenum type) {
   GLuint sh = glCreateShader(type);
@@ -108,7 +126,12 @@ GLuint linkShader(GLuint vertex, GLuint fragment) {
 }
 
 void createShader() {
-  vertex = compileShader(readShader(shader.vertex), GL_VERTEX_SHADER);
+  static const char vertex_src[] = {
+    "#version 450 core\n"
+    "const vec2 quadVertices[4] = { vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0) };\n"
+    "void main() { gl_Position = vec4(quadVertices[gl_VertexID], 0.0, 1.0); }\n"
+  };
+  vertex = compileShader(vertex_src, GL_VERTEX_SHADER);
   fragment = compileShader(readShader(shader.fragment),GL_FRAGMENT_SHADER);
   linkShader(vertex,fragment);
   struct stat file_stat;
@@ -120,7 +143,7 @@ void createShader() {
 void createWindow() {
   glfwInit();
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-  window = glfwCreateWindow(width,height, "", NULL, NULL);
+  window = glfwCreateWindow(width,height, "", glfwGetPrimaryMonitor(), NULL);
   glfwMakeContextCurrent(window);
   glfwSetKeyCallback(window, key_callback);
   glfwSetErrorCallback(error_callback);
@@ -229,7 +252,6 @@ int main(int argc, char **argv) {
     strncpy(images[i-1].path, argv[i],40);
     images[i-1].new = 1;
   }
-  //glActiveTexture(GL_TEXTURE4);
   glCreateTextures(GL_TEXTURE_2D,1,&backbuffer);
   glTextureStorage2D(backbuffer,1,GL_RGBA32F,width,height);
   glBindImageTexture(0,backbuffer, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
