@@ -24,14 +24,6 @@ int bars;
 
 typedef struct Shad {
   GLuint id;
-  /*
-  static const char vertex_src[] = {
-    "#version 450 core\n"
-    "const vec2 quadVertices[4] = { vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0) };\n"
-    "void main() { gl_Position = vec4(quadVertices[gl_VertexID], 0.0, 1.0); }\n"
-  };
-  */
-  //char vertex[40];
   char fragment[40];
   time_t mtime;
   int new;
@@ -61,11 +53,11 @@ void screenshot() {
   char output_file[25];
   strftime(output_file, 25, "%Y-%m-%d_%H%M%S.png", localtime(&current_time));
   glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
   // Flip the image on Y
   int depth = 4;
   int row,col,z;
   stbi_uc temp;
-
   for (row = 0; row < (height>>1); row++) {
    for (col = 0; col < width; col++) {
       for (z = 0; z < depth; z++) {
@@ -247,7 +239,6 @@ void *watchShader() {
 int main(int argc, char **argv) {
 
   createWindow();
-  //strncpy(shader.vertex,"shader.vert",40);
   strncpy(shader.fragment,"shader.frag",40);
   shader.new = 1;
   unsigned int VAO;
