@@ -24,7 +24,14 @@ int bars;
 
 typedef struct Shad {
   GLuint id;
-  char vertex[40];
+  /*
+  static const char vertex_src[] = {
+    "#version 450 core\n"
+    "const vec2 quadVertices[4] = { vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0) };\n"
+    "void main() { gl_Position = vec4(quadVertices[gl_VertexID], 0.0, 1.0); }\n"
+  };
+  */
+  //char vertex[40];
   char fragment[40];
   time_t mtime;
   int new;
@@ -68,9 +75,7 @@ void screenshot() {
       }
    }
   }
-  if (0 == stbi_write_png(output_file, width, height, 4, pixels, width * 4)) {
-      printf("can't create file %s",output_file);
-  }
+  if (0 == stbi_write_png(output_file, width, height, 4, pixels, width * 4)) { printf("can't create file %s",output_file); }
 }
 
 static void error_callback(int error, const char* description) { fputs(description, stderr); }
@@ -242,7 +247,7 @@ void *watchShader() {
 int main(int argc, char **argv) {
 
   createWindow();
-  strncpy(shader.vertex,"shader.vert",40);
+  //strncpy(shader.vertex,"shader.vert",40);
   strncpy(shader.fragment,"shader.frag",40);
   shader.new = 1;
   unsigned int VAO;
