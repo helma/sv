@@ -1,35 +1,27 @@
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <stdlib.h>
+// https://www.raspberrypi.org/forums/viewtopic.php?t=119859
 #include <stdio.h>
-#include <string.h>
-#include <pthread.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "bcm_host.h"
+#include "egl.h"
+#include "gl2.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-int width = 1920;
-int height = 1080;
-GLFWwindow* window;
-GLuint vertex;
-GLuint fragment;
+EGLDisplay egldisplay;
+EGLConfig eglconfig;
+EGLSurface eglsurface;
+EGLContext eglcontext;
+
 GLuint shaderProgram;
 GLuint backbuffer;
+
+time_t shaderMtime;
+int shaderNew;
+uint32_t width, height;
 int bars;
-
-typedef struct Shad {
-  GLuint id;
-  char fragment[40];
-  time_t mtime;
-  int new;
-} Shader;
-
-Shader shader;
 
 typedef struct Img {
   GLuint id;
@@ -70,86 +62,126 @@ void screenshot() {
   if (0 == stbi_write_png(output_file, width, height, 4, pixels, width * 4)) { printf("can't create file %s",output_file); }
 }
 
-static void error_callback(int error, const char* description) { fputs(description, stderr); }
-
-static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_Q && action == GLFW_PRESS) glfwSetWindowShouldClose(window, GL_TRUE);
-    else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) screenshot();
-}
-
-const char * readShader(char * path) {
-  FILE *file = fopen(path, "r");
-  if (!file) { fprintf(stderr,"Cannot read %s\n",path); }
-  char source[100000];
-  int res = fread(source,1,100000-1,file);
+int initShader() {
+	const GLchar *vShaderStr[] = {
+    "attribute vec4 vPosition;   \n"
+    "void main(){                \n"
+    "   gl_Position = vPosition; \n"
+    "}                           \n"};
+  FILE *file = fopen("shader.frag", "r");
+  if (!file) { fprintf(stderr,"Cannot read %s\n","shader.frag"); }
+  char source[10000];
+  int res = fread(source,1,10000-1,file);
   source[res] = 0;
   fclose(file);
-  const char *c_str = source;
-  return c_str;
-}
-
-GLuint compileShader(const char * source, GLenum type) {
-  GLuint sh = glCreateShader(type);
-  glShaderSource(sh, 1, &source, NULL);
-  glCompileShader(sh);
+	const GLchar *fShaderStr = source;
+	GLuint vShader = glCreateShader(GL_VERTEX_SHADER);
+	GLuint fShader = glCreateShader(GL_FRAGMENT_SHADER);
+  glShaderSource(vShader, 1, vShaderStr, NULL);
+	glCompileShader(vShader);
+	glShaderSource(fShader, 1, &fShaderStr, NULL);
+	glCompileShader(fShader);
   int success;
-  glGetShaderiv(sh, GL_COMPILE_STATUS, &success);
+  glGetShaderiv(fShader, GL_COMPILE_STATUS, &success);
   if (!success) {
     char infoLog[512];
-    glGetShaderInfoLog(sh, 512, NULL, infoLog);
+    glGetShaderInfoLog(fShader, 512, NULL, infoLog);
     fprintf(stderr,"Shader compilation failed: %s\n",infoLog);
   }
-  else { return sh; }
+	shaderProgram = glCreateProgram();
+	glAttachShader(shaderProgram, vShader);
+	glAttachShader(shaderProgram, fShader);
+	glLinkProgram(shaderProgram);
+  //glDetachShader(shaderProgram, vShader); 
+  //glDetachShader(shaderProgram, fShader); 
+  //glDeleteShader(vShader);
+  //glDeleteShader(fShader);
+
+	GLfloat vVertices[] = {
+   -1.0f, -1.0f, 0.0f,
+    1.0f, -1.0f, 0.0f,
+   -1.0f,  1.0f, 0.0f,
+    1.0f,  1.0f, 0.0f};
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vVertices);
+	glEnableVertexAttribArray(0);
+	glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+	glUseProgram(shaderProgram);
 }
 
-GLuint linkShader(GLuint vertex, GLuint fragment) {
-  glUseProgram(0);
-  glDeleteProgram(shader.id);
-  shader.id = glCreateProgram();
-  glAttachShader(shader.id, vertex);
-  glAttachShader(shader.id, fragment);
-  glLinkProgram(shader.id);
-  int success;
-  glGetProgramiv(shader.id, GL_LINK_STATUS, &success);
-  if (!success) {
-    char infoLog[512];
-    glGetProgramInfoLog(shader.id, 512, NULL, infoLog);
-    fprintf(stderr,"Shader linking failed: %s\n",infoLog);
-  }
-  glDetachShader(shader.id, vertex); 
-  glDetachShader(shader.id, fragment); 
-  glDeleteShader(vertex);
-  glDeleteShader(fragment);
+void initWindow() {
+	static const EGLint s_configAttribs[] = {
+		EGL_RED_SIZE,		8,
+		EGL_GREEN_SIZE, 	8,
+		EGL_BLUE_SIZE,		8,
+		EGL_ALPHA_SIZE, 	8,
+		EGL_LUMINANCE_SIZE, EGL_DONT_CARE,
+		EGL_SURFACE_TYPE,	EGL_WINDOW_BIT,
+		EGL_SAMPLES,		1,
+		EGL_NONE
+	};
+
+	static const EGLint context_attributes[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE
+	};
+
+	bcm_host_init();
+	int s;
+
+	static EGL_DISPMANX_WINDOW_T window;
+	DISPMANX_ELEMENT_HANDLE_T dispman_element;
+	DISPMANX_DISPLAY_HANDLE_T dispman_display;
+	DISPMANX_UPDATE_HANDLE_T dispman_update;
+	VC_RECT_T dst_rect;
+	VC_RECT_T src_rect;
+
+	s = graphics_get_display_size(0 /* LCD */, &width, &height);
+
+	dst_rect.x = 0;
+	dst_rect.y = 0;
+	dst_rect.width = width;
+	dst_rect.height = height;
+
+	src_rect.x = 0;
+	src_rect.y = 0;
+	src_rect.width = width << 16;
+	src_rect.height = height << 16;
+
+	dispman_display = vc_dispmanx_display_open( 0 /* LCD */);
+	dispman_update = vc_dispmanx_update_start( 0 );
+
+	dispman_element = vc_dispmanx_element_add ( dispman_update, dispman_display,
+		1/*layer*/, &dst_rect, 0/*src*/,
+		&src_rect, DISPMANX_PROTECTION_NONE, 0 /*alpha*/, 0/*clamp*/, 0/*transform*/);
+
+	window.element = dispman_element;
+	window.width = width;
+	window.height = height;
+	vc_dispmanx_update_submit_sync( dispman_update );
+
+	EGLint numconfigs;
+
+	egldisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+	eglInitialize(egldisplay, NULL, NULL);
+	eglBindAPI(EGL_OPENGL_ES_API);
+
+	eglChooseConfig(egldisplay, s_configAttribs, &eglconfig, 1, &numconfigs);
+
+	eglsurface = eglCreateWindowSurface(egldisplay, eglconfig, &window, NULL);
+	eglcontext = eglCreateContext(egldisplay, eglconfig, EGL_NO_CONTEXT, context_attributes);
+	eglMakeCurrent(egldisplay, eglsurface, eglsurface, eglcontext);
 }
 
-void createShader() {
-  static const char vertex_src[] = {
-    "#version 450 core\n"
-    "const vec2 quadVertices[4] = { vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0) };\n"
-    "void main() { gl_Position = vec4(quadVertices[gl_VertexID], 0.0, 1.0); }\n"
-  };
-  vertex = compileShader(vertex_src, GL_VERTEX_SHADER);
-  fragment = compileShader(readShader(shader.fragment),GL_FRAGMENT_SHADER);
-  linkShader(vertex,fragment);
-  struct stat file_stat;
-  stat(shader.fragment, &file_stat);
-  shader.mtime = file_stat.st_mtime;
-  glUseProgram(shader.id);
-};
-
-void createWindow() {
-  glfwInit();
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-  window = glfwCreateWindow(width,height, "", glfwGetPrimaryMonitor(), NULL);
-  glfwMakeContextCurrent(window);
-  glfwSetKeyCallback(window, key_callback);
-  glfwSetErrorCallback(error_callback);
-  glewInit();
+void deinit(void) {
+	eglMakeCurrent(egldisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	eglTerminate(egldisplay);
+	eglReleaseThread();
 }
 
 void imageUniforms(int i) {
-  glUniform1i(glGetUniformLocation(shader.id, "images")+i,i);
-  glUniform1f(glGetUniformLocation(shader.id, "ratios")+i,images[i].ratio);
+  glUniform1i(glGetUniformLocation(shaderProgram, "images")+i,i);
+  glUniform1f(glGetUniformLocation(shaderProgram, "ratios")+i,images[i].ratio);
 }
 
 void readImage(int i) {
@@ -187,10 +219,10 @@ void updateImages(int force) {
 }
 
 void updateParams(int force) {
-  glUniform1i(glGetUniformLocation(shader.id, "bars"), bars);
+  glUniform1i(glGetUniformLocation(shaderProgram, "bars"), bars);
   for (int i = 0; i<32; i++) {
     if (parameters[i].new || force) {
-      glUniform1f(glGetUniformLocation(shader.id, "params")+i, parameters[i].value);
+      glUniform1f(glGetUniformLocation(shaderProgram, "params")+i, parameters[i].value);
       parameters[i].new = 0;
     }
   }
@@ -207,13 +239,15 @@ void *readStdin() {
       strncpy(images[i].path, strtok(NULL,"\n"),40);
       images[i].new = 1;
     }
+    /*
     else if (n[0] == 'f') {
       strncpy(shader.fragment, strtok(NULL,"\n"),40);
       shader.new = 1;
     }
+    */
     else if (n[0] == 'b') {
       bars = atof(strtok (NULL,"\n"));
-      glfwSetTime(0);	
+      //glfwSetTime(0);	
       printf("%i\n",bars);
     }
     else if (n[0] == 'p') {
@@ -222,7 +256,7 @@ void *readStdin() {
       parameters[i].new = 1;
     }
     else if (n[0] == 'q') {
-      glfwSetWindowShouldClose(window, GL_TRUE);
+      //glfwSetWindowShouldClose(window, GL_TRUE);
     }
   }
 }
@@ -231,52 +265,50 @@ void *watchShader() {
   while (1) {
     sleep(0.2);
     struct stat file_stat;
-    stat(shader.fragment, &file_stat);
-    if (file_stat.st_mtime > shader.mtime) shader.new = 1; 
+    stat("shader.frag", &file_stat);
+    if (file_stat.st_mtime > shaderMtime) shaderNew = 1; 
   }
 }
 
 int main(int argc, char **argv) {
 
-  createWindow();
-  strncpy(shader.fragment,"shader.frag",40);
-  shader.new = 1;
-  unsigned int VAO;
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO);
+	initWindow();
   for (int i = 1; i<argc; i++) {
     strncpy(images[i-1].path, argv[i],40);
     images[i-1].new = 1;
   }
+  /*
   glCreateTextures(GL_TEXTURE_2D,1,&backbuffer);
   glTextureStorage2D(backbuffer,1,GL_RGBA32F,width,height);
   glBindImageTexture(0,backbuffer, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+  */
   
   pthread_t stdin_t;
   pthread_create(&stdin_t, NULL, readStdin, NULL);
   pthread_t frag_t;
   pthread_create(&frag_t, NULL, watchShader, NULL);
 
-  while (!glfwWindowShouldClose(window)) {
-    glUniform1f(glGetUniformLocation(shader.id, "time"),glfwGetTime());
-    if (shader.new) {
-      createShader();
-      glUniform2f(glGetUniformLocation(shader.id, "resolution"),width,height); // important!!
+   while (1) {
+    if (shaderNew) {
+      initShader();
+      glUniform2f(glGetUniformLocation(shaderProgram, "resolution"),width,height); // important!!
       for (int i = 0; i<4; i++) { imageUniforms(i); }
       updateParams(1);
-      shader.new = 0;
+      shaderNew = 0;
     }
     updateImages(0);
     updateParams(0);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glfwSwapBuffers(window);
-    glfwPollEvents();
-  }
+		//clear the buffer
+		//glClear(GL_COLOR_BUFFER_BIT);
 
-  pthread_cancel(stdin_t);
-  pthread_cancel(frag_t);
-  glfwDestroyWindow(window);
-  glfwTerminate();
- 
-  exit(EXIT_SUCCESS);
+		//Draw the triangles
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		
+		//actually draw the stuff to the screen
+		eglSwapBuffers(egldisplay, eglsurface);
+
+   }
+   deinit();
+
+   return 0;
 }
